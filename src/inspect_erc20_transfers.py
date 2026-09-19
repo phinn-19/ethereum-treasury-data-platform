@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import requests
 from dotenv import load_dotenv
 
+import argparse #cho phép đọc tham số dòng lệnh (command-line arguments)
 
 load_dotenv()
 
@@ -13,8 +14,18 @@ if not api_key:
     raise RuntimeError("Không tìm thấy ETHERSCAN_API_KEY trong file .env")
 
 
-# Vẫn dùng address test cũ để dễ so sánh với normal transactions.
-address = "0x2449ecef5012f0a0e153b278ef4fcc9625bc4c78"
+parser = argparse.ArgumentParser(
+    description="Inspect Ethereum data for a wallet address."
+)
+
+parser.add_argument(
+    "address",
+    help="Ethereum wallet address, for example 0xabc...",
+)
+
+args = parser.parse_args()
+
+address = args.address
 
 url = "https://api.etherscan.io/v2/api"
 
@@ -61,7 +72,8 @@ for transfer in transfers:
         int(transfer["timeStamp"]),
         tz=timezone.utc,
     )
-
+    #tokenDecimal = đặt dấu thập phân ở đâu
+    #tokenDecimal = 6, value = 100000000 -> 100 USDC
     decimals = int(transfer["tokenDecimal"])
     raw_value = int(transfer["value"])
     token_amount = raw_value / (10 ** decimals)
