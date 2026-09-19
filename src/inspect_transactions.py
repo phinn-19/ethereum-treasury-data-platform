@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import requests
 from dotenv import load_dotenv
+import argparse
 
 # Đọc các biến trong file .env
 load_dotenv()
@@ -11,9 +12,18 @@ if not api_key:
     raise RuntimeError("Không tìm thấy ETHERSCAN_API_KEY trong file .env")
 
 # Address dùng để TEST kết nối API.
-# Đây chưa phải wallet chính thức của project.
-address = "0x2449ecef5012f0a0e153b278ef4fcc9625bc4c78"
+parser = argparse.ArgumentParser(
+    description="Inspect recent Ethereum transactions for a wallet address."
+)
 
+parser.add_argument(
+    "address",
+    help="Ethereum wallet address, for example 0xabc...",
+)
+
+args = parser.parse_args()
+
+address = args.address
 url = "https://api.etherscan.io/v2/api"
 params = {
     "chainid": "1",
