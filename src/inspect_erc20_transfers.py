@@ -15,7 +15,7 @@ if not api_key:
 
 
 parser = argparse.ArgumentParser(
-    description="Inspect Ethereum data for a wallet address."
+    description="Inspect recent ERC-20 transfers for a wallet address."
 )
 
 parser.add_argument(
@@ -23,9 +23,17 @@ parser.add_argument(
     help="Ethereum wallet address, for example 0xabc...",
 )
 
+parser.add_argument(
+    "--offset",
+    type=int,
+    default=5,
+    help="Number of records to fetch. Default: 5",
+)
+
 args = parser.parse_args()
 
 address = args.address
+offset = args.offset
 
 url = "https://api.etherscan.io/v2/api"
 
@@ -37,7 +45,7 @@ params = {
     "startblock": 0,
     "endblock": 99999999,
     "page": 1,
-    "offset": 5,
+    "offset": offset,
     "sort": "desc",
     "apikey": api_key,
 }
