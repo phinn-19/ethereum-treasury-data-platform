@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,7 +16,6 @@ if not api_key:
     raise RuntimeError("Không tìm thấy ETHERSCAN_API_KEY trong file .env")
 
 
-# Nhận tham số từ command line
 parser = argparse.ArgumentParser(
     description="Ingest ERC-20 transfers for an Ethereum address."
 )
@@ -42,16 +42,94 @@ if offset <= 0:
 
 
 url = "https://api.etherscan.io/v2/api"
+#lần 1 lỗi chờ 2s, lần 2 chờ 4s,.. -> thời gian chờ tăng theo cấp số nhân
+
+MAX_RETRIES = 3
+BASE_DELAY_SECONDS = 2
+
+RETRYABLE_STATUS_CODES = {
+    429, #giới hạn request
+    500, #5xx -> server gặp vấn đề
+    502,
+    503,
+    504,
+}
+
+#gọi API và xử lí retry
+
+def fetch_page(page):
+    params = {
+        "chainid": "1",
+        "module": "account",
+        "action": "tokentx",
+        "address": address,
+        "startblock": 0,
+        "endblock": 99999999,
+        "page": page,
+        "offset": offset,
+        "sort": "asc",
+        "apikey": api_key,
+    }
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = requests.get(
+                url,
+                params=params,
+                timeout=20,
+            )
+
+            if response.status_code in RETRYABLE_STATUS_CODES:
+                if attempt == MAX_RETRIES:
+                    response.raise_for_status()
+
+                delay = BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+
+                print(
+                    f"Temporary HTTP error "
+                    f"{response.status_code}. "
+                    f"Retrying in {delay}s..."
+                )
+
+                time.sleep(delay)
+                continue
+
+            response.raise_for_status()
+
+            return response
+
+        except (
+            # quá thời gian chờ và lỗi kết nối
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+        ) as error:
+
+            if attempt == MAX_RETRIES:
+                raise RuntimeError(
+                    f"Request failed after "
+                    f"{MAX_RETRIES} attempts on page {page}"
+                ) from error
+
+            delay = BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+
+            print(
+                f"Network error on page {page}. "
+                f"Retrying in {delay}s..."
+            )
+
+            time.sleep(delay)
+
+    raise RuntimeError(
+        f"Unexpected retry failure on page {page}"
+    )
 
 
-# Thời điểm bắt đầu một lần ingestion
 run_time = datetime.now(timezone.utc)
 
 date_folder = run_time.strftime("%Y-%m-%d")
 timestamp = run_time.strftime("%Y%m%dT%H%M%SZ")
 
 
-# Folder dùng chung cho tất cả page trong lần chạy này
 output_dir = Path(
     "data",
     "raw",
@@ -66,61 +144,47 @@ output_dir.mkdir(
 )
 
 
-# Bắt đầu từ page 1
 page = 1
 
+pages_saved = 0
+total_records = 0
 
+#pagination +save raw data
 while True:
-    params = {
-        "chainid": "1",
-        "module": "account",
-        "action": "tokentx",
-        "address": address,
-        "startblock": 0,
-        "endblock": 99999999,
-        "page": page,
-        "offset": offset,
-        "sort": "asc",
-        "apikey": api_key,
-    }
-
     print(f"Fetching page {page}...")
 
-    response = requests.get(
-        url,
-        params=params,
-        timeout=20,
-    )
+    response = fetch_page(page)
 
-    response.raise_for_status()
+    try:
+        payload = response.json()
+    except ValueError as error:
+        raise RuntimeError(
+            f"Invalid JSON response on page {page}"
+        ) from error
 
-    payload = response.json()
     result = payload.get("result")
 
 
-    # Trường hợp đã hết dữ liệu
     if (
         payload.get("status") == "0"
         and "No transactions found" in str(result)
     ):
-        print("No more records. Stopping.")
+        print("No more records.")
         break
 
 
-    # Trường hợp API trả về thứ gì đó bất thường
     if not isinstance(result, list):
         raise RuntimeError(
-            f"Etherscan API error on page {page}: {payload}"
+            f"Etherscan API error on page {page}: "
+            f"{payload.get('message')} - {result}"
         )
 
 
-    # Nếu list rỗng thì cũng dừng
     if len(result) == 0:
-        print("No more records. Stopping.")
+        print("No more records.")
         break
 
 
-    # Mỗi page lưu thành một raw file riêng
     output_file = (
         output_dir
         / (
@@ -135,18 +199,27 @@ while True:
         encoding="utf-8",
     )
 
+
+    pages_saved += 1
+    total_records += len(result)
+
+
     print(
         f"Saved page {page}: "
         f"{len(result)} records"
     )
 
 
-    # Nếu page hiện tại ít hơn offset
-    # thì đây là page cuối
     if len(result) < offset:
         print("Reached the last page.")
         break
 
 
-    # Sang page tiếp theo
     page += 1
+
+
+print()
+print("Ingestion completed.")
+print("Pages saved:", pages_saved)
+print("Total records:", total_records)
+print("Output directory:", output_dir)
