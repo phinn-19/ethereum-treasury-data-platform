@@ -42,20 +42,18 @@ if offset <= 0:
 
 
 url = "https://api.etherscan.io/v2/api"
-#lần 1 lỗi chờ 2s, lần 2 chờ 4s,.. -> thời gian chờ tăng theo cấp số nhân
 
 MAX_RETRIES = 3
 BASE_DELAY_SECONDS = 2
 
 RETRYABLE_STATUS_CODES = {
-    429, #giới hạn request
-    500, #5xx -> server gặp vấn đề
+    429,
+    500,
     502,
     503,
     504,
 }
 
-#gọi API và xử lí retry
 
 def fetch_page(page):
     params = {
@@ -99,7 +97,6 @@ def fetch_page(page):
             return response
 
         except (
-            # quá thời gian chờ và lỗi kết nối
             requests.exceptions.Timeout,
             requests.exceptions.ConnectionError,
         ) as error:
@@ -149,7 +146,7 @@ page = 1
 pages_saved = 0
 total_records = 0
 
-#pagination +save raw data
+
 while True:
     print(f"Fetching page {page}...")
 

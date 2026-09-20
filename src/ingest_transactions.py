@@ -1,9 +1,9 @@
+import argparse
 import os
-from datetime import datetime, timezone
-from pathlib import Path
 
-import requests
 from dotenv import load_dotenv
+
+from etherscan_ingestion import ingest_account_history
 
 
 load_dotenv()
@@ -11,68 +11,38 @@ load_dotenv()
 api_key = os.getenv("ETHERSCAN_API_KEY")
 
 if not api_key:
-    raise RuntimeError("Không tìm thấy ETHERSCAN_API_KEY trong file .env")
+    raise RuntimeError(
+        "Không tìm thấy ETHERSCAN_API_KEY trong file .env"
+    )
 
 
-# Wallet test hiện tại.
-# Chưa phải wallet chính thức của project.
-address = "0x2449ecef5012f0a0e153b278ef4fcc9625bc4c78"
-
-url = "https://api.etherscan.io/v2/api"
-
-params = {
-    "chainid": "1",
-    "module": "account",
-    "action": "txlist",
-    "address": address,
-    "startblock": 0,
-    "endblock": 99999999,
-    "page": 1,
-    "offset": 5,
-    "sort": "desc",
-    "apikey": api_key,
-}
-
-
-response = requests.get(
-    url,
-    params=params,
-    timeout=20,
+parser = argparse.ArgumentParser(
+    description="Ingest normal transactions for an Ethereum address."
 )
 
-response.raise_for_status()
-
-
-# Thời điểm dữ liệu được ingestion.
-ingested_at = datetime.now(timezone.utc)
-
-date_folder = ingested_at.strftime("%Y-%m-%d")
-timestamp = ingested_at.strftime("%Y%m%dT%H%M%SZ")
-
-
-output_dir = Path(
-    "data",
-    "raw",
-    "ethereum",
-    "transactions",
-    f"ingestion_date={date_folder}",
+parser.add_argument(
+    "address",
+    help="Ethereum address to ingest.",
 )
 
-output_dir.mkdir(
-    parents=True,
-    exist_ok=True,
+parser.add_argument(
+    "--offset",
+    type=int,
+    default=100,
+    help="Number of records per API page. Default: 100",
 )
 
+args = parser.parse_args()
 
-output_file = output_dir / f"txlist_{address}_{timestamp}.json"
+if args.offset <= 0:
+    raise ValueError("--offset phải lớn hơn 0")
 
 
-output_file.write_text(
-    response.text,
-    encoding="utf-8",
+ingest_account_history(
+    api_key=api_key,
+    address=args.address,
+    action="txlist",
+    dataset_name="transactions",
+    file_prefix="txlist",
+    offset=args.offset,
 )
-
-
-print("Raw data saved successfully.")
-print("File:", output_file)
-print("HTTP status:", response.status_code)
