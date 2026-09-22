@@ -26,20 +26,22 @@ RETRYABLE_API_MESSAGES = (
     "timeout occured",
 )
 
-#lấy 1 page an toàn
+
+# Lấy 1 page an toàn
 def fetch_page(
     api_key,
     address,
     action,
     page,
     offset,
+    start_block,
 ):
     params = {
         "chainid": "1",
         "module": "account",
         "action": action,
         "address": address,
-        "startblock": 0,
+        "startblock": start_block,
         "endblock": 99999999,
         "page": page,
         "offset": offset,
@@ -160,8 +162,8 @@ def fetch_page(
         f"Unexpected retry failure on page {page}"
     )
 
-# 1-> n và lưu all xuống raw
 
+# Đi từ page 1 -> N và lưu toàn bộ raw data
 def ingest_account_history(
     api_key,
     address,
@@ -169,6 +171,7 @@ def ingest_account_history(
     dataset_name,
     file_prefix,
     offset,
+    start_block=0,
 ):
     run_time = datetime.now(timezone.utc)
 
@@ -194,6 +197,9 @@ def ingest_account_history(
     pages_saved = 0
     total_records = 0
 
+    # Block lớn nhất lấy được trong lần chạy hiện tại
+    highest_block = None
+
 
     while True:
         print(f"Fetching page {page}...")
@@ -204,12 +210,28 @@ def ingest_account_history(
             action=action,
             page=page,
             offset=offset,
+            start_block=start_block,
         )
 
 
         if len(result) == 0:
             print("No more records.")
             break
+
+
+        # Tìm block lớn nhất trong page hiện tại
+        page_highest_block = max(
+            int(record["blockNumber"])
+            for record in result
+        )
+
+
+        # Cập nhật block lớn nhất của toàn bộ lần chạy
+        if (
+            highest_block is None
+            or page_highest_block > highest_block
+        ):
+            highest_block = page_highest_block
 
 
         output_file = (
@@ -250,6 +272,16 @@ def ingest_account_history(
     print()
     print("Ingestion completed.")
     print("Dataset:", dataset_name)
+    print("Start block:", start_block)
     print("Pages saved:", pages_saved)
     print("Total records:", total_records)
+    print("Highest block:", highest_block)
     print("Output directory:", output_dir)
+
+
+    return {
+        "pages_saved": pages_saved,
+        "total_records": total_records,
+        "highest_block": highest_block,
+        "output_dir": output_dir,
+    }
