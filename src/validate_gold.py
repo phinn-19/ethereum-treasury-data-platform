@@ -33,6 +33,7 @@ def check_tables(
     required_tables = {
         "wallet_daily_erc20_flows",
         "organization_daily_erc20_flows",
+        "wallet_daily_transaction_activity",
     }
 
     rows = connection.execute(
@@ -138,27 +139,62 @@ def check_grain(
         ).fetchone()[0]
     )
 
+    transaction_duplicates = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM (
+                SELECT
+                    activity_date,
+                    wallet_id
+
+                FROM
+                    gold.wallet_daily_transaction_activity
+
+                GROUP BY
+                    activity_date,
+                    wallet_id
+
+                HAVING COUNT(*) > 1
+            )
+            """
+        ).fetchone()[0]
+    )
+
     print(
-        "Wallet duplicate "
+        "Wallet ERC20 duplicate "
         "(date, wallet, token) groups:",
         wallet_duplicates,
     )
 
     print(
-        "Organization duplicate "
+        "Organization ERC20 duplicate "
         "(date, organization, token) groups:",
         organization_duplicates,
     )
 
+    print(
+        "Transaction activity duplicate "
+        "(date, wallet) groups:",
+        transaction_duplicates,
+    )
+
     if wallet_duplicates != 0:
         fail(
-            "Wallet Gold grain "
+            "Wallet ERC20 Gold grain "
             "contains duplicates"
         )
 
     if organization_duplicates != 0:
         fail(
-            "Organization Gold grain "
+            "Organization ERC20 Gold grain "
+            "contains duplicates"
+        )
+
+    if transaction_duplicates != 0:
+        fail(
+            "Transaction activity Gold grain "
             "contains duplicates"
         )
 
@@ -284,7 +320,7 @@ def check_wallet_event_counts(
     connection,
 ):
     section(
-        "WALLET EVENT RECONCILIATION"
+        "WALLET ERC20 EVENT RECONCILIATION"
     )
 
     silver_rows = (
@@ -333,7 +369,7 @@ def check_wallet_measures(
     connection,
 ):
     section(
-        "WALLET AMOUNT RECONCILIATION"
+        "WALLET ERC20 AMOUNT RECONCILIATION"
     )
 
     mismatch_count = (
@@ -479,13 +515,13 @@ def check_wallet_measures(
     )
 
     print(
-        "Wallet aggregate mismatches:",
+        "Wallet ERC20 aggregate mismatches:",
         mismatch_count,
     )
 
     if mismatch_count != 0:
         fail(
-            "Wallet Gold values "
+            "Wallet ERC20 Gold values "
             "do not match Silver"
         )
 
@@ -494,7 +530,7 @@ def check_organization_event_counts(
     connection,
 ):
     section(
-        "ORGANIZATION EVENT RECONCILIATION"
+        "ORGANIZATION ERC20 EVENT RECONCILIATION"
     )
 
     silver_wallet_rows = (
@@ -766,7 +802,7 @@ def check_organization_measures(
     connection,
 ):
     section(
-        "ORGANIZATION AMOUNT RECONCILIATION"
+        "ORGANIZATION ERC20 AMOUNT RECONCILIATION"
     )
 
     mismatch_count = (
@@ -1081,7 +1117,7 @@ def check_organization_measures(
     )
 
     print(
-        "Organization aggregate "
+        "Organization ERC20 aggregate "
         "mismatches:",
         mismatch_count,
     )
@@ -1093,7 +1129,7 @@ def check_organization_measures(
 
     if mismatch_count != 0:
         fail(
-            "Organization Gold values "
+            "Organization ERC20 Gold values "
             "do not match Silver"
         )
 
@@ -1101,6 +1137,452 @@ def check_organization_measures(
         fail(
             "Organization Gold contains "
             "OTHER events"
+        )
+
+
+def check_transaction_activity_counts(
+    connection,
+):
+    section(
+        "TRANSACTION ACTIVITY COUNT RECONCILIATION"
+    )
+
+    silver_transactions = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM silver.transactions
+            """
+        ).fetchone()[0]
+    )
+
+    gold_transaction_count = (
+        connection.execute(
+            """
+            SELECT
+                COALESCE(
+                    SUM(transaction_count),
+                    0
+                )
+
+            FROM
+                gold.wallet_daily_transaction_activity
+            """
+        ).fetchone()[0]
+    )
+
+    status_counts = (
+        connection.execute(
+            """
+            SELECT
+                COALESCE(
+                    SUM(
+                        successful_transaction_count
+                    ),
+                    0
+                ),
+
+                COALESCE(
+                    SUM(
+                        failed_transaction_count
+                    ),
+                    0
+                ),
+
+                COALESCE(
+                    SUM(
+                        unknown_status_count
+                    ),
+                    0
+                )
+
+            FROM
+                gold.wallet_daily_transaction_activity
+            """
+        ).fetchone()
+    )
+
+    successful = status_counts[0]
+    failed = status_counts[1]
+    unknown = status_counts[2]
+
+    status_total = (
+        successful
+        + failed
+        + unknown
+    )
+
+    print(
+        "Silver transactions:",
+        silver_transactions,
+    )
+
+    print(
+        "Gold transaction count:",
+        gold_transaction_count,
+    )
+
+    print(
+        "Successful:",
+        successful,
+    )
+
+    print(
+        "Failed:",
+        failed,
+    )
+
+    print(
+        "Unknown:",
+        unknown,
+    )
+
+    print(
+        "Status bucket total:",
+        status_total,
+    )
+
+    if (
+        silver_transactions
+        != gold_transaction_count
+    ):
+        fail(
+            "Gold transaction count "
+            "does not match Silver"
+        )
+
+    if (
+        status_total
+        != gold_transaction_count
+    ):
+        fail(
+            "Success + failed + unknown "
+            "does not equal total "
+            "transaction count"
+        )
+
+
+def check_transaction_activity_measures(
+    connection,
+):
+    section(
+        "TRANSACTION ACTIVITY MEASURE RECONCILIATION"
+    )
+
+    mismatch_count = (
+        connection.execute(
+            """
+            WITH expected AS (
+                SELECT
+                    CAST(
+                        block_timestamp
+                        AS DATE
+                    ) AS activity_date,
+
+                    organization_id,
+                    wallet_id,
+                    treasury_address,
+
+                    COUNT(*)
+                        AS transaction_count,
+
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                is_error IS TRUE
+
+                                OR
+
+                                receipt_status = 0
+
+                            THEN 1
+                        END
+                    )
+                        AS failed_transaction_count,
+
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                receipt_status = 1
+
+                                AND
+
+                                is_error IS NOT TRUE
+
+                            THEN 1
+                        END
+                    )
+                        AS successful_transaction_count,
+
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                NOT (
+                                    is_error IS TRUE
+
+                                    OR
+
+                                    receipt_status = 0
+                                )
+
+                                AND
+
+                                NOT (
+                                    receipt_status = 1
+
+                                    AND
+
+                                    is_error IS NOT TRUE
+                                )
+
+                            THEN 1
+                        END
+                    )
+                        AS unknown_status_count,
+
+
+                    COUNT(
+                        CASE
+                            WHEN direction = 'CREATE'
+                            THEN 1
+                        END
+                    )
+                        AS contract_creation_count,
+
+
+                    COALESCE(
+                        SUM(gas_used),
+                        0
+                    )
+                        AS total_gas_used,
+
+
+                    SUM(
+                        COALESCE(
+                            gas_cost_eth_decimal,
+
+                            CAST(
+                                0
+                                AS DECIMAL(38,18)
+                            )
+                        )
+                    )
+                        AS outer_transaction_fee_eth,
+
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                gas_cost_eth_decimal
+                                    IS NULL
+
+                            THEN 1
+                        END
+                    )
+                        AS missing_fee_count
+
+
+                FROM
+                    silver.transactions
+
+
+                GROUP BY
+                    1,
+                    2,
+                    3,
+                    4
+            )
+
+
+            SELECT COUNT(*)
+
+
+            FROM expected AS e
+
+
+            FULL OUTER JOIN
+                gold.wallet_daily_transaction_activity
+                AS g
+
+                ON
+                    e.activity_date
+                        = g.activity_date
+
+                    AND
+
+                    e.wallet_id
+                        = g.wallet_id
+
+
+            WHERE
+                e.activity_date IS NULL
+
+                OR g.activity_date IS NULL
+
+
+                OR e.organization_id
+                    IS DISTINCT FROM
+                    g.organization_id
+
+
+                OR e.treasury_address
+                    IS DISTINCT FROM
+                    g.treasury_address
+
+
+                OR e.transaction_count
+                    IS DISTINCT FROM
+                    g.transaction_count
+
+
+                OR e.failed_transaction_count
+                    IS DISTINCT FROM
+                    g.failed_transaction_count
+
+
+                OR e.successful_transaction_count
+                    IS DISTINCT FROM
+                    g.successful_transaction_count
+
+
+                OR e.unknown_status_count
+                    IS DISTINCT FROM
+                    g.unknown_status_count
+
+
+                OR e.contract_creation_count
+                    IS DISTINCT FROM
+                    g.contract_creation_count
+
+
+                OR e.total_gas_used
+                    IS DISTINCT FROM
+                    g.total_gas_used
+
+
+                OR e.outer_transaction_fee_eth
+                    IS DISTINCT FROM
+                    g.outer_transaction_fee_eth
+
+
+                OR e.missing_fee_count
+                    IS DISTINCT FROM
+                    g.missing_fee_count
+            """
+        ).fetchone()[0]
+    )
+
+    print(
+        "Transaction activity "
+        "aggregate mismatches:",
+        mismatch_count,
+    )
+
+    if mismatch_count != 0:
+        fail(
+            "Transaction activity Gold values "
+            "do not match Silver"
+        )
+
+
+def check_transaction_quality(
+    connection,
+):
+    section(
+        "TRANSACTION ACTIVITY QUALITY CHECK"
+    )
+
+    row = connection.execute(
+        """
+        SELECT
+            COALESCE(
+                SUM(
+                    unknown_status_count
+                ),
+                0
+            ),
+
+            COALESCE(
+                SUM(
+                    missing_fee_count
+                ),
+                0
+            ),
+
+            COALESCE(
+                SUM(
+                    contract_creation_count
+                ),
+                0
+            ),
+
+            COALESCE(
+                SUM(
+                    total_gas_used
+                ),
+                0
+            ),
+
+            COALESCE(
+                SUM(
+                    outer_transaction_fee_eth
+                ),
+                CAST(
+                    0
+                    AS DECIMAL(38,18)
+                )
+            )
+
+        FROM
+            gold.wallet_daily_transaction_activity
+        """
+    ).fetchone()
+
+    unknown = row[0]
+    missing_fee = row[1]
+    creation_count = row[2]
+    total_gas_used = row[3]
+    total_fee_eth = row[4]
+
+    print(
+        "Unknown transaction statuses:",
+        unknown,
+    )
+
+    print(
+        "Transactions missing fee:",
+        missing_fee,
+    )
+
+    print(
+        "Contract creation events:",
+        creation_count,
+    )
+
+    print(
+        "Total gas used:",
+        total_gas_used,
+    )
+
+    print(
+        "Outer transaction fee ETH:",
+        total_fee_eth,
+    )
+
+    if unknown != 0:
+        fail(
+            "Some transactions have "
+            "unknown status"
+        )
+
+    if missing_fee != 0:
+        fail(
+            "Some transactions are "
+            "missing fee information"
         )
 
 
@@ -1154,6 +1636,18 @@ def main():
         )
 
         check_organization_measures(
+            connection
+        )
+
+        check_transaction_activity_counts(
+            connection
+        )
+
+        check_transaction_activity_measures(
+            connection
+        )
+
+        check_transaction_quality(
             connection
         )
 

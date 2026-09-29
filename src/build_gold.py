@@ -10,11 +10,6 @@ DATABASE_PATH = Path(
 )
 
 
-ZERO_DECIMAL = (
-    "CAST(0 AS DECIMAL(38,18))"
-)
-
-
 def create_gold_schema(
     connection,
 ):
@@ -72,11 +67,10 @@ def build_wallet_daily_erc20_flows(
                     WHEN t.direction = 'IN'
                     THEN t.amount_decimal
 
-                    ELSE
-                        CAST(
-                            0
-                            AS DECIMAL(38,18)
-                        )
+                    ELSE CAST(
+                        0
+                        AS DECIMAL(38,18)
+                    )
                 END
             ) AS inflow_amount,
 
@@ -85,11 +79,10 @@ def build_wallet_daily_erc20_flows(
                     WHEN t.direction = 'OUT'
                     THEN t.amount_decimal
 
-                    ELSE
-                        CAST(
-                            0
-                            AS DECIMAL(38,18)
-                        )
+                    ELSE CAST(
+                        0
+                        AS DECIMAL(38,18)
+                    )
                 END
             ) AS outflow_amount,
 
@@ -101,11 +94,10 @@ def build_wallet_daily_erc20_flows(
                     WHEN t.direction = 'OUT'
                     THEN -t.amount_decimal
 
-                    ELSE
-                        CAST(
-                            0
-                            AS DECIMAL(38,18)
-                        )
+                    ELSE CAST(
+                        0
+                        AS DECIMAL(38,18)
+                    )
                 END
             ) AS net_flow_amount,
 
@@ -134,8 +126,7 @@ def build_wallet_daily_erc20_flows(
 
             COUNT(
                 CASE
-                    WHEN t.amount_decimal
-                        IS NULL
+                    WHEN t.amount_decimal IS NULL
                     THEN 1
                 END
             ) AS non_decimal_event_count
@@ -145,8 +136,7 @@ def build_wallet_daily_erc20_flows(
 
         JOIN
             silver.wallets AS w
-            ON t.wallet_id
-                = w.wallet_id
+            ON t.wallet_id = w.wallet_id
 
         GROUP BY
             flow_date,
@@ -329,16 +319,14 @@ def build_organization_daily_erc20_flows(
             SUM(
                 CASE
                     WHEN
-                        e.organization_direction
-                            = 'IN'
+                        e.organization_direction = 'IN'
 
                     THEN e.amount_decimal
 
-                    ELSE
-                        CAST(
-                            0
-                            AS DECIMAL(38,18)
-                        )
+                    ELSE CAST(
+                        0
+                        AS DECIMAL(38,18)
+                    )
                 END
             ) AS external_inflow_amount,
 
@@ -346,16 +334,14 @@ def build_organization_daily_erc20_flows(
             SUM(
                 CASE
                     WHEN
-                        e.organization_direction
-                            = 'OUT'
+                        e.organization_direction = 'OUT'
 
                     THEN e.amount_decimal
 
-                    ELSE
-                        CAST(
-                            0
-                            AS DECIMAL(38,18)
-                        )
+                    ELSE CAST(
+                        0
+                        AS DECIMAL(38,18)
+                    )
                 END
             ) AS external_outflow_amount,
 
@@ -363,24 +349,21 @@ def build_organization_daily_erc20_flows(
             SUM(
                 CASE
                     WHEN
-                        e.organization_direction
-                            = 'IN'
+                        e.organization_direction = 'IN'
 
                     THEN e.amount_decimal
 
 
                     WHEN
-                        e.organization_direction
-                            = 'OUT'
+                        e.organization_direction = 'OUT'
 
                     THEN -e.amount_decimal
 
 
-                    ELSE
-                        CAST(
-                            0
-                            AS DECIMAL(38,18)
-                        )
+                    ELSE CAST(
+                        0
+                        AS DECIMAL(38,18)
+                    )
                 END
             ) AS net_external_flow_amount,
 
@@ -388,16 +371,14 @@ def build_organization_daily_erc20_flows(
             SUM(
                 CASE
                     WHEN
-                        e.organization_direction
-                            = 'INTERNAL'
+                        e.organization_direction = 'INTERNAL'
 
                     THEN e.amount_decimal
 
-                    ELSE
-                        CAST(
-                            0
-                            AS DECIMAL(38,18)
-                        )
+                    ELSE CAST(
+                        0
+                        AS DECIMAL(38,18)
+                    )
                 END
             ) AS internal_transfer_amount,
 
@@ -405,8 +386,7 @@ def build_organization_daily_erc20_flows(
             COUNT(
                 CASE
                     WHEN
-                        e.organization_direction
-                            = 'IN'
+                        e.organization_direction = 'IN'
 
                     THEN 1
                 END
@@ -416,8 +396,7 @@ def build_organization_daily_erc20_flows(
             COUNT(
                 CASE
                     WHEN
-                        e.organization_direction
-                            = 'OUT'
+                        e.organization_direction = 'OUT'
 
                     THEN 1
                 END
@@ -427,8 +406,7 @@ def build_organization_daily_erc20_flows(
             COUNT(
                 CASE
                     WHEN
-                        e.organization_direction
-                            = 'INTERNAL'
+                        e.organization_direction = 'INTERNAL'
 
                     THEN 1
                 END
@@ -438,8 +416,7 @@ def build_organization_daily_erc20_flows(
             COUNT(
                 CASE
                     WHEN
-                        e.organization_direction
-                            = 'OTHER'
+                        e.organization_direction = 'OTHER'
 
                     THEN 1
                 END
@@ -452,8 +429,7 @@ def build_organization_daily_erc20_flows(
             COUNT(
                 CASE
                     WHEN
-                        e.amount_decimal
-                            IS NULL
+                        e.amount_decimal IS NULL
 
                     THEN 1
                 END
@@ -483,6 +459,163 @@ def build_organization_daily_erc20_flows(
         """
     )
 
+#transaction_count là tổng normal transaction (giao dịch ngoài cùng) mà Silver đang theo dõi cho wallet trong ngày.
+#failed_transaction_count dùng:
+#is_error = true
+#OR
+#receipt_status = 0 -> sucess or failed
+
+def build_wallet_daily_transaction_activity(
+    connection,
+):
+    connection.execute(
+        """
+        DROP TABLE IF EXISTS
+        gold.wallet_daily_transaction_activity
+        """
+    )
+
+
+    connection.execute(
+        """
+        CREATE TABLE
+        gold.wallet_daily_transaction_activity
+        AS
+
+        SELECT
+            CAST(
+                t.block_timestamp
+                AS DATE
+            ) AS activity_date,
+
+            t.organization_id,
+
+            t.wallet_id,
+
+            w.wallet_name,
+
+            w.wallet_role,
+
+            t.treasury_address,
+
+            COUNT(*) AS transaction_count,
+
+
+            COUNT(
+                CASE
+                    WHEN
+                        t.is_error IS TRUE
+
+                        OR
+
+                        t.receipt_status = 0
+
+                    THEN 1
+                END
+            ) AS failed_transaction_count,
+
+
+            COUNT(
+                CASE
+                    WHEN
+                        t.receipt_status = 1
+
+                        AND
+
+                        t.is_error IS NOT TRUE
+
+                    THEN 1
+                END
+            ) AS successful_transaction_count,
+
+
+            COUNT(
+                CASE
+                    WHEN
+                        NOT (
+                            t.is_error IS TRUE
+
+                            OR
+
+                            t.receipt_status = 0
+                        )
+
+                        AND
+
+                        NOT (
+                            t.receipt_status = 1
+
+                            AND
+
+                            t.is_error IS NOT TRUE
+                        )
+
+                    THEN 1
+                END
+            ) AS unknown_status_count,
+
+
+            COUNT(
+                CASE
+                    WHEN t.direction = 'CREATE'
+                    THEN 1
+                END
+            ) AS contract_creation_count,
+
+
+            COALESCE(
+                SUM(
+                    t.gas_used
+                ),
+                0
+            ) AS total_gas_used,
+
+
+            SUM(
+                COALESCE(
+                    t.gas_cost_eth_decimal,
+
+                    CAST(
+                        0
+                        AS DECIMAL(38,18)
+                    )
+                )
+            ) AS outer_transaction_fee_eth,
+
+
+            COUNT(
+                CASE
+                    WHEN
+                        t.gas_cost_eth_decimal
+                            IS NULL
+
+                    THEN 1
+                END
+            ) AS missing_fee_count
+
+
+        FROM
+            silver.transactions AS t
+
+
+        JOIN
+            silver.wallets AS w
+
+            ON
+                t.wallet_id
+                    = w.wallet_id
+
+
+        GROUP BY
+            activity_date,
+            t.organization_id,
+            t.wallet_id,
+            w.wallet_name,
+            w.wallet_role,
+            t.treasury_address
+        """
+    )
+
 
 def print_summary(
     connection,
@@ -499,118 +632,69 @@ def print_summary(
     )
 
 
-    wallet_rows = (
-        connection.execute(
-            """
-            SELECT COUNT(*)
-            FROM
-                gold.wallet_daily_erc20_flows
-            """
-        ).fetchone()[0]
-    )
+    for table_name in [
+        "wallet_daily_erc20_flows",
+        "organization_daily_erc20_flows",
+        "wallet_daily_transaction_activity",
+    ]:
+        row_count = (
+            connection.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM gold.{table_name}
+                """
+            ).fetchone()[0]
+        )
 
-
-    organization_rows = (
-        connection.execute(
-            """
-            SELECT COUNT(*)
-            FROM
-                gold.organization_daily_erc20_flows
-            """
-        ).fetchone()[0]
-    )
-
-
-    print(
-        "wallet_daily_erc20_flows:",
-        wallet_rows,
-    )
-
-    print(
-        "organization_daily_erc20_flows:",
-        organization_rows,
-    )
+        print(
+            f"{table_name}:",
+            row_count,
+        )
 
 
     print()
     print(
-        "Wallet date range:"
-    )
-
-
-    print(
-        connection.execute(
-            """
-            SELECT
-                MIN(flow_date),
-                MAX(flow_date)
-
-            FROM
-                gold.wallet_daily_erc20_flows
-            """
-        ).fetchone()
-    )
-
-
-    print()
-    print(
-        "Organization date range:"
-    )
-
-
-    print(
-        connection.execute(
-            """
-            SELECT
-                MIN(flow_date),
-                MAX(flow_date)
-
-            FROM
-                gold.organization_daily_erc20_flows
-            """
-        ).fetchone()
-    )
-
-
-    print()
-    print(
-        "Organization event summary:"
+        "Transaction activity summary:"
     )
 
 
     rows = connection.execute(
         """
         SELECT
-            organization_id,
+            wallet_id,
 
             SUM(
-                external_inflow_event_count
-            ) AS external_in,
+                transaction_count
+            ) AS transactions,
 
             SUM(
-                external_outflow_event_count
-            ) AS external_out,
+                successful_transaction_count
+            ) AS successful,
 
             SUM(
-                internal_transfer_event_count
-            ) AS internal_events,
+                failed_transaction_count
+            ) AS failed,
 
             SUM(
-                other_event_count
-            ) AS other_events,
+                unknown_status_count
+            ) AS unknown,
 
             SUM(
-                total_event_count
-            ) AS total_events
+                contract_creation_count
+            ) AS creations,
+
+            SUM(
+                missing_fee_count
+            ) AS missing_fee
 
         FROM
-            gold.organization_daily_erc20_flows
+            gold.wallet_daily_transaction_activity
 
         GROUP BY
-            organization_id
+            wallet_id
 
         ORDER BY
-            organization_id
+            wallet_id
         """
     ).fetchall()
 
@@ -619,16 +703,18 @@ def print_summary(
         print(
             "  ",
             row[0],
-            "| external IN:",
+            "| tx:",
             row[1],
-            "| external OUT:",
+            "| success:",
             row[2],
-            "| internal:",
+            "| failed:",
             row[3],
-            "| OTHER:",
+            "| unknown:",
             row[4],
-            "| total:",
+            "| create:",
             row[5],
+            "| missing fee:",
+            row[6],
         )
 
 
@@ -672,6 +758,11 @@ def main():
 
 
         build_organization_daily_erc20_flows(
+            connection
+        )
+
+
+        build_wallet_daily_transaction_activity(
             connection
         )
 
