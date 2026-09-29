@@ -1,0 +1,57 @@
+[
+  {
+    "organization_id": "ens_dao",
+    "organization_name": "ENS DAO",
+    "wallet_id": "dao_timelock",
+    "wallet_name": "DAO Wallet / Timelock",
+    "wallet_role": "treasury",
+    "address": "0xfe89cc7abb2c4183683ab71653c4cdc9b02d44b7",
+    "chain_id": 1,
+    "monitoring_enabled": true,
+    "source_reference": "EP 6.37"
+  },
+  {
+    "organization_id": "ens_dao",
+    "organization_name": "ENS DAO",
+    "wallet_id": "endowment",
+    "wallet_name": "ENS Endowment",
+    "wallet_role": "endowment",
+    "address": "0x4f2083f5fbede34c2714affb3105539775f7fe64",
+    "chain_id": 1,
+    "monitoring_enabled": true,
+    "source_reference": "EP 6.37"
+  },
+  {
+    "organization_id": "ens_dao",
+    "organization_name": "ENS DAO",
+    "wallet_id": "metagov_main",
+    "wallet_name": "Meta-Governance Main Multisig",
+    "wallet_role": "working_group_treasury",
+    "address": "0x91c32893216de3ea0a55abb9851f581d4503d39b",
+    "chain_id": 1,
+    "monitoring_enabled": true,
+    "source_reference": "EP 6.29"
+  },
+  {
+    "organization_id": "ens_dao",
+    "organization_name": "ENS DAO",
+    "wallet_id": "ecosystem_main",
+    "wallet_name": "Ecosystem Main Multisig",
+    "wallet_role": "working_group_treasury",
+    "address": "0x2686a8919df194aa7673244549e68d42c1685d03",
+    "chain_id": 1,
+    "monitoring_enabled": true,
+    "source_reference": "EP 6.29"
+  },
+  {
+    "organization_id": "ens_dao",
+    "organization_name": "ENS DAO",
+    "wallet_id": "public_goods_main",
+    "wallet_name": "Public Goods Main Multisig",
+    "wallet_role": "working_group_treasury",
+    "address": "0xcd42b4c4d102cc22864e3a1341bb0529c17fd87d",
+    "chain_id": 1,
+    "monitoring_enabled": true,
+    "source_reference": "EP 6.29"
+  }
+]
