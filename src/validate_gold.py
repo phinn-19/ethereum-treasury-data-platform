@@ -31,6 +31,7 @@ def check_tables(
     )
 
     required_tables = {
+        "wallet_erc20_transfer_valuations",
         "wallet_daily_erc20_flows",
         "organization_daily_erc20_flows",
         "wallet_daily_transaction_activity",
@@ -66,6 +67,7 @@ def check_tables(
         count = connection.execute(
             f"""
             SELECT COUNT(*)
+
             FROM gold.{table_name}
             """
         ).fetchone()[0]
@@ -162,6 +164,33 @@ def check_grain(
         ).fetchone()[0]
     )
 
+    valuation_duplicates = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM (
+                SELECT
+                    activity_id
+
+                FROM
+                    gold.wallet_erc20_transfer_valuations
+
+                GROUP BY
+                    activity_id
+
+                HAVING COUNT(*) > 1
+            )
+            """
+        ).fetchone()[0]
+    )
+
+    print(
+        "Transfer valuation duplicate "
+        "activity_id groups:",
+        valuation_duplicates,
+    )
+
     print(
         "Wallet ERC20 duplicate "
         "(date, wallet, token) groups:",
@@ -180,6 +209,12 @@ def check_grain(
         transaction_duplicates,
     )
 
+    if valuation_duplicates != 0:
+        fail(
+            "ERC20 transfer valuation grain "
+            "contains duplicate activity_id values"
+        )
+
     if wallet_duplicates != 0:
         fail(
             "Wallet ERC20 Gold grain "
@@ -196,6 +231,1296 @@ def check_grain(
         fail(
             "Transaction activity Gold grain "
             "contains duplicates"
+        )
+
+
+def check_erc20_transfer_valuations(
+    connection,
+):
+    section(
+        "ERC20 TRANSFER USD VALUATION CHECK"
+    )
+
+    silver_rows = connection.execute(
+        """
+        SELECT COUNT(*)
+
+        FROM silver.erc20_transfers
+        """
+    ).fetchone()[0]
+
+    valuation_rows = connection.execute(
+        """
+        SELECT COUNT(*)
+
+        FROM gold.wallet_erc20_transfer_valuations
+        """
+    ).fetchone()[0]
+
+    row_reconciliation_mismatches = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM
+                silver.erc20_transfers AS s
+
+            FULL OUTER JOIN
+                gold.wallet_erc20_transfer_valuations AS v
+
+                ON s.activity_id = v.activity_id
+
+            WHERE
+                s.activity_id IS NULL
+
+                OR v.activity_id IS NULL
+
+                OR s.blockchain_event_id
+                    IS DISTINCT FROM
+                    v.blockchain_event_id
+
+                OR s.chain_id
+                    IS DISTINCT FROM
+                    v.chain_id
+
+                OR s.organization_id
+                    IS DISTINCT FROM
+                    v.organization_id
+
+                OR s.wallet_id
+                    IS DISTINCT FROM
+                    v.wallet_id
+
+                OR s.token_contract
+                    IS DISTINCT FROM
+                    v.token_contract
+
+                OR s.block_timestamp
+                    IS DISTINCT FROM
+                    v.block_timestamp
+
+                OR s.amount_decimal
+                    IS DISTINCT FROM
+                    v.amount_decimal
+
+                OR s.direction
+                    IS DISTINCT FROM
+                    v.direction
+            """
+        ).fetchone()[0]
+    )
+
+    expected_status_mismatches = (
+        connection.execute(
+            """
+            WITH expected AS (
+                SELECT
+                    s.activity_id,
+
+                    p.asset_id
+                        AS expected_price_asset_id,
+
+                    p.price_status
+                        AS expected_source_price_status,
+
+                    p.provider
+                        AS expected_price_provider,
+
+                    p.price_usd
+                        AS expected_daily_price_usd,
+
+                    p.confidence
+                        AS expected_price_confidence,
+
+                    p.requested_timestamp
+                        AS expected_requested_timestamp,
+
+                    p.source_timestamp
+                        AS expected_source_timestamp,
+
+                    p.source_delta_seconds
+                        AS expected_source_delta_seconds,
+
+                    CASE
+                        WHEN
+                            p.token_contract IS NULL
+
+                        THEN
+                            'ASSET_NOT_PRICED'
+
+                        WHEN
+                            p.price_status = 'UNAVAILABLE'
+
+                        THEN
+                            'PRICE_UNAVAILABLE'
+
+                        WHEN
+                            p.price_status = 'AVAILABLE'
+                            AND p.price_usd IS NOT NULL
+                            AND s.amount_decimal IS NOT NULL
+
+                        THEN
+                            'VALUED'
+
+                        WHEN
+                            p.price_status = 'AVAILABLE'
+                            AND p.price_usd IS NOT NULL
+                            AND s.amount_decimal IS NULL
+
+                        THEN
+                            'AMOUNT_UNAVAILABLE'
+
+                        ELSE
+                            'PRICE_DATA_INVALID'
+                    END AS expected_valuation_status
+
+                FROM
+                    silver.erc20_transfers AS s
+
+                LEFT JOIN
+                    silver.token_prices_daily AS p
+
+                    ON
+                        s.chain_id = p.chain_id
+
+                        AND
+
+                        s.token_contract
+                            = p.token_contract
+
+                        AND
+
+                        CAST(
+                            s.block_timestamp
+                            AS DATE
+                        )
+                            = p.price_date
+            )
+
+            SELECT COUNT(*)
+
+            FROM
+                expected AS e
+
+            JOIN
+                gold.wallet_erc20_transfer_valuations
+                AS v
+
+                ON
+                    e.activity_id
+                        = v.activity_id
+
+            WHERE
+                e.expected_price_asset_id
+                    IS DISTINCT FROM
+                    v.price_asset_id
+
+                OR e.expected_source_price_status
+                    IS DISTINCT FROM
+                    v.source_price_status
+
+                OR e.expected_price_provider
+                    IS DISTINCT FROM
+                    v.price_provider
+
+                OR e.expected_daily_price_usd
+                    IS DISTINCT FROM
+                    v.daily_price_usd
+
+                OR e.expected_price_confidence
+                    IS DISTINCT FROM
+                    v.price_confidence
+
+                OR e.expected_requested_timestamp
+                    IS DISTINCT FROM
+                    v.price_requested_timestamp
+
+                OR e.expected_source_timestamp
+                    IS DISTINCT FROM
+                    v.price_source_timestamp
+
+                OR e.expected_source_delta_seconds
+                    IS DISTINCT FROM
+                    v.price_source_delta_seconds
+
+                OR e.expected_valuation_status
+                    IS DISTINCT FROM
+                    v.valuation_status
+            """
+        ).fetchone()[0]
+    )
+
+    formula_mismatches = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM
+                gold.wallet_erc20_transfer_valuations
+
+            WHERE
+                valuation_status = 'VALUED'
+
+                AND
+
+                value_usd
+                    IS DISTINCT FROM
+                    CAST(
+                        CAST(
+                            amount_decimal
+                            AS DOUBLE
+                        )
+                        *
+                        CAST(
+                            daily_price_usd
+                            AS DOUBLE
+                        )
+                        AS DECIMAL(38,8)
+                    )
+            """
+        ).fetchone()[0]
+    )
+
+    invalid_valued_rows = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM
+                gold.wallet_erc20_transfer_valuations
+
+            WHERE
+                valuation_status = 'VALUED'
+
+                AND (
+                    amount_decimal IS NULL
+
+                    OR daily_price_usd IS NULL
+
+                    OR daily_price_usd <= 0
+
+                    OR value_usd IS NULL
+
+                    OR source_price_status
+                        IS DISTINCT FROM
+                        'AVAILABLE'
+
+                    OR price_asset_id IS NULL
+                )
+            """
+        ).fetchone()[0]
+    )
+
+    invalid_price_unavailable_rows = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM
+                gold.wallet_erc20_transfer_valuations
+
+            WHERE
+                valuation_status
+                    = 'PRICE_UNAVAILABLE'
+
+                AND (
+                    price_asset_id IS NULL
+
+                    OR source_price_status
+                        IS DISTINCT FROM
+                        'UNAVAILABLE'
+
+                    OR daily_price_usd
+                        IS NOT NULL
+
+                    OR value_usd
+                        IS NOT NULL
+                )
+            """
+        ).fetchone()[0]
+    )
+
+    invalid_asset_not_priced_rows = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM
+                gold.wallet_erc20_transfer_valuations
+
+            WHERE
+                valuation_status
+                    = 'ASSET_NOT_PRICED'
+
+                AND (
+                    price_asset_id IS NOT NULL
+
+                    OR source_price_status
+                        IS NOT NULL
+
+                    OR price_provider
+                        IS NOT NULL
+
+                    OR daily_price_usd
+                        IS NOT NULL
+
+                    OR price_confidence
+                        IS NOT NULL
+
+                    OR price_requested_timestamp
+                        IS NOT NULL
+
+                    OR price_source_timestamp
+                        IS NOT NULL
+
+                    OR price_source_delta_seconds
+                        IS NOT NULL
+
+                    OR value_usd
+                        IS NOT NULL
+                )
+            """
+        ).fetchone()[0]
+    )
+
+    unexpected_status_rows = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM
+                gold.wallet_erc20_transfer_valuations
+
+            WHERE
+                valuation_status NOT IN (
+                    'VALUED',
+                    'PRICE_UNAVAILABLE',
+                    'ASSET_NOT_PRICED',
+                    'AMOUNT_UNAVAILABLE',
+                    'PRICE_DATA_INVALID'
+                )
+            """
+        ).fetchone()[0]
+    )
+
+    amount_unavailable_rows = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM
+                gold.wallet_erc20_transfer_valuations
+
+            WHERE
+                valuation_status
+                    = 'AMOUNT_UNAVAILABLE'
+            """
+        ).fetchone()[0]
+    )
+
+    invalid_price_data_rows = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM
+                gold.wallet_erc20_transfer_valuations
+
+            WHERE
+                valuation_status
+                    = 'PRICE_DATA_INVALID'
+            """
+        ).fetchone()[0]
+    )
+
+    status_rows = connection.execute(
+        """
+        SELECT
+            valuation_status,
+            COUNT(*) AS row_count
+
+        FROM
+            gold.wallet_erc20_transfer_valuations
+
+        GROUP BY
+            valuation_status
+
+        ORDER BY
+            valuation_status
+        """
+    ).fetchall()
+
+    print(
+        "Silver ERC20 rows:",
+        silver_rows,
+    )
+
+    print(
+        "Gold valuation rows:",
+        valuation_rows,
+    )
+
+    print(
+        "Transfer row reconciliation mismatches:",
+        row_reconciliation_mismatches,
+    )
+
+    print(
+        "Price/status linkage mismatches:",
+        expected_status_mismatches,
+    )
+
+    print(
+        "USD formula mismatches:",
+        formula_mismatches,
+    )
+
+    print(
+        "Invalid VALUED rows:",
+        invalid_valued_rows,
+    )
+
+    print(
+        "Invalid PRICE_UNAVAILABLE rows:",
+        invalid_price_unavailable_rows,
+    )
+
+    print(
+        "Invalid ASSET_NOT_PRICED rows:",
+        invalid_asset_not_priced_rows,
+    )
+
+    print(
+        "AMOUNT_UNAVAILABLE rows:",
+        amount_unavailable_rows,
+    )
+
+    print(
+        "PRICE_DATA_INVALID rows:",
+        invalid_price_data_rows,
+    )
+
+    print(
+        "Unexpected valuation statuses:",
+        unexpected_status_rows,
+    )
+
+    print()
+    print(
+        "Valuation status summary:"
+    )
+
+    for row in status_rows:
+        print(
+            "  ",
+            row[0],
+            "| rows:",
+            row[1],
+        )
+
+    if silver_rows != valuation_rows:
+        fail(
+            "Gold ERC20 valuation row count "
+            "does not match Silver"
+        )
+
+    if row_reconciliation_mismatches != 0:
+        fail(
+            "Gold ERC20 valuation rows "
+            "do not reconcile one-to-one "
+            "with Silver"
+        )
+
+    if expected_status_mismatches != 0:
+        fail(
+            "Gold ERC20 valuation price "
+            "linkage or status is incorrect"
+        )
+
+    if formula_mismatches != 0:
+        fail(
+            "Some ERC20 USD values do not "
+            "equal amount_decimal * price"
+        )
+
+    if invalid_valued_rows != 0:
+        fail(
+            "Invalid VALUED ERC20 rows detected"
+        )
+
+    if invalid_price_unavailable_rows != 0:
+        fail(
+            "Invalid PRICE_UNAVAILABLE "
+            "ERC20 rows detected"
+        )
+
+    if invalid_asset_not_priced_rows != 0:
+        fail(
+            "Invalid ASSET_NOT_PRICED "
+            "ERC20 rows detected"
+        )
+
+    if amount_unavailable_rows != 0:
+        fail(
+            "Some ERC20 transfers cannot "
+            "be valued because amount_decimal "
+            "is unavailable"
+        )
+
+    if invalid_price_data_rows != 0:
+        fail(
+            "Invalid token price data reached "
+            "the Gold valuation table"
+        )
+
+    if unexpected_status_rows != 0:
+        fail(
+            "Unexpected ERC20 valuation "
+            "status detected"
+        )
+
+
+def check_wallet_usd_measures(
+    connection,
+):
+    section(
+        "WALLET ERC20 USD RECONCILIATION"
+    )
+
+    mismatch_count = (
+        connection.execute(
+            """
+            WITH expected AS (
+                SELECT
+                    valuation_date
+                        AS flow_date,
+
+                    wallet_id,
+
+                    token_contract,
+
+                    CASE
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        direction = 'IN'
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            CAST(
+                                0
+                                AS DECIMAL(38,8)
+                            )
+
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        direction = 'IN'
+                                        AND value_usd IS NULL
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            SUM(
+                                CASE
+                                    WHEN direction = 'IN'
+                                    THEN value_usd
+
+                                    ELSE CAST(
+                                        0
+                                        AS DECIMAL(38,8)
+                                    )
+                                END
+                            )
+
+                        ELSE
+                            NULL
+                    END AS inflow_usd,
+
+                    CASE
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        direction = 'OUT'
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            CAST(
+                                0
+                                AS DECIMAL(38,8)
+                            )
+
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        direction = 'OUT'
+                                        AND value_usd IS NULL
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            SUM(
+                                CASE
+                                    WHEN direction = 'OUT'
+                                    THEN value_usd
+
+                                    ELSE CAST(
+                                        0
+                                        AS DECIMAL(38,8)
+                                    )
+                                END
+                            )
+
+                        ELSE
+                            NULL
+                    END AS outflow_usd,
+
+                    CASE
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        direction IN (
+                                            'IN',
+                                            'OUT'
+                                        )
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            CAST(
+                                0
+                                AS DECIMAL(38,8)
+                            )
+
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        direction IN (
+                                            'IN',
+                                            'OUT'
+                                        )
+                                        AND value_usd IS NULL
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            SUM(
+                                CASE
+                                    WHEN direction = 'IN'
+                                    THEN value_usd
+
+                                    WHEN direction = 'OUT'
+                                    THEN -value_usd
+
+                                    ELSE CAST(
+                                        0
+                                        AS DECIMAL(38,8)
+                                    )
+                                END
+                            )
+
+                        ELSE
+                            NULL
+                    END AS net_flow_usd,
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                valuation_status = 'VALUED'
+                            THEN 1
+                        END
+                    ) AS valued_event_count,
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                valuation_status
+                                    = 'PRICE_UNAVAILABLE'
+                            THEN 1
+                        END
+                    ) AS price_unavailable_event_count,
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                valuation_status
+                                    = 'ASSET_NOT_PRICED'
+                            THEN 1
+                        END
+                    ) AS asset_not_priced_event_count,
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                valuation_status
+                                    = 'AMOUNT_UNAVAILABLE'
+                            THEN 1
+                        END
+                    ) AS amount_unavailable_event_count,
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                valuation_status
+                                    = 'PRICE_DATA_INVALID'
+                            THEN 1
+                        END
+                    ) AS price_data_invalid_event_count
+
+                FROM
+                    gold.wallet_erc20_transfer_valuations
+
+                GROUP BY
+                    1,
+                    2,
+                    3
+            )
+
+            SELECT COUNT(*)
+
+            FROM
+                expected AS e
+
+            FULL OUTER JOIN
+                gold.wallet_daily_erc20_flows AS g
+
+                ON
+                    e.flow_date = g.flow_date
+
+                    AND
+
+                    e.wallet_id = g.wallet_id
+
+                    AND
+
+                    e.token_contract
+                        = g.token_contract
+
+            WHERE
+                e.flow_date IS NULL
+
+                OR g.flow_date IS NULL
+
+                OR e.inflow_usd
+                    IS DISTINCT FROM
+                    g.inflow_usd
+
+                OR e.outflow_usd
+                    IS DISTINCT FROM
+                    g.outflow_usd
+
+                OR e.net_flow_usd
+                    IS DISTINCT FROM
+                    g.net_flow_usd
+
+                OR e.valued_event_count
+                    IS DISTINCT FROM
+                    g.valued_event_count
+
+                OR e.price_unavailable_event_count
+                    IS DISTINCT FROM
+                    g.price_unavailable_event_count
+
+                OR e.asset_not_priced_event_count
+                    IS DISTINCT FROM
+                    g.asset_not_priced_event_count
+
+                OR e.amount_unavailable_event_count
+                    IS DISTINCT FROM
+                    g.amount_unavailable_event_count
+
+                OR e.price_data_invalid_event_count
+                    IS DISTINCT FROM
+                    g.price_data_invalid_event_count
+            """
+        ).fetchone()[0]
+    )
+
+    print(
+        "Wallet USD aggregate mismatches:",
+        mismatch_count,
+    )
+
+    if mismatch_count != 0:
+        fail(
+            "Wallet ERC20 USD aggregates "
+            "do not reconcile with transfer "
+            "valuations"
+        )
+
+
+def check_organization_usd_measures(
+    connection,
+):
+    section(
+        "ORGANIZATION ERC20 USD RECONCILIATION"
+    )
+
+    mismatch_count = (
+        connection.execute(
+            """
+            WITH blockchain_events AS (
+                SELECT DISTINCT
+                    blockchain_event_id,
+
+                    organization_id,
+
+                    valuation_date
+                        AS flow_date,
+
+                    token_contract,
+
+                    from_address,
+
+                    to_address,
+
+                    valuation_status,
+
+                    value_usd
+
+                FROM
+                    gold.wallet_erc20_transfer_valuations
+            ),
+
+            classified AS (
+                SELECT
+                    e.*,
+
+                    CASE
+                        WHEN
+                            from_wallet.wallet_id
+                                IS NOT NULL
+
+                            AND
+
+                            to_wallet.wallet_id
+                                IS NOT NULL
+
+                        THEN
+                            'INTERNAL'
+
+                        WHEN
+                            from_wallet.wallet_id
+                                IS NOT NULL
+
+                            AND
+
+                            to_wallet.wallet_id
+                                IS NULL
+
+                        THEN
+                            'OUT'
+
+                        WHEN
+                            from_wallet.wallet_id
+                                IS NULL
+
+                            AND
+
+                            to_wallet.wallet_id
+                                IS NOT NULL
+
+                        THEN
+                            'IN'
+
+                        ELSE
+                            'OTHER'
+                    END AS organization_direction
+
+                FROM
+                    blockchain_events AS e
+
+                LEFT JOIN
+                    silver.wallets AS from_wallet
+
+                    ON
+                        e.organization_id
+                            = from_wallet.organization_id
+
+                        AND
+
+                        e.from_address
+                            = from_wallet.address
+
+                        AND
+
+                        from_wallet.monitoring_enabled
+                            = TRUE
+
+                LEFT JOIN
+                    silver.wallets AS to_wallet
+
+                    ON
+                        e.organization_id
+                            = to_wallet.organization_id
+
+                        AND
+
+                        e.to_address
+                            = to_wallet.address
+
+                        AND
+
+                        to_wallet.monitoring_enabled
+                            = TRUE
+            ),
+
+            expected AS (
+                SELECT
+                    flow_date,
+
+                    organization_id,
+
+                    token_contract,
+
+                    CASE
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        organization_direction
+                                            = 'IN'
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            CAST(
+                                0
+                                AS DECIMAL(38,8)
+                            )
+
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        organization_direction
+                                            = 'IN'
+                                        AND value_usd IS NULL
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            SUM(
+                                CASE
+                                    WHEN
+                                        organization_direction
+                                            = 'IN'
+
+                                    THEN value_usd
+
+                                    ELSE CAST(
+                                        0
+                                        AS DECIMAL(38,8)
+                                    )
+                                END
+                            )
+
+                        ELSE
+                            NULL
+                    END AS external_inflow_usd,
+
+                    CASE
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        organization_direction
+                                            = 'OUT'
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            CAST(
+                                0
+                                AS DECIMAL(38,8)
+                            )
+
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        organization_direction
+                                            = 'OUT'
+                                        AND value_usd IS NULL
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            SUM(
+                                CASE
+                                    WHEN
+                                        organization_direction
+                                            = 'OUT'
+
+                                    THEN value_usd
+
+                                    ELSE CAST(
+                                        0
+                                        AS DECIMAL(38,8)
+                                    )
+                                END
+                            )
+
+                        ELSE
+                            NULL
+                    END AS external_outflow_usd,
+
+                    CASE
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        organization_direction
+                                        IN (
+                                            'IN',
+                                            'OUT'
+                                        )
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            CAST(
+                                0
+                                AS DECIMAL(38,8)
+                            )
+
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        organization_direction
+                                        IN (
+                                            'IN',
+                                            'OUT'
+                                        )
+                                        AND value_usd IS NULL
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            SUM(
+                                CASE
+                                    WHEN
+                                        organization_direction
+                                            = 'IN'
+
+                                    THEN value_usd
+
+                                    WHEN
+                                        organization_direction
+                                            = 'OUT'
+
+                                    THEN -value_usd
+
+                                    ELSE CAST(
+                                        0
+                                        AS DECIMAL(38,8)
+                                    )
+                                END
+                            )
+
+                        ELSE
+                            NULL
+                    END AS net_external_flow_usd,
+
+                    CASE
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        organization_direction
+                                            = 'INTERNAL'
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            CAST(
+                                0
+                                AS DECIMAL(38,8)
+                            )
+
+                        WHEN
+                            COUNT(
+                                CASE
+                                    WHEN
+                                        organization_direction
+                                            = 'INTERNAL'
+                                        AND value_usd IS NULL
+                                    THEN 1
+                                END
+                            ) = 0
+
+                        THEN
+                            SUM(
+                                CASE
+                                    WHEN
+                                        organization_direction
+                                            = 'INTERNAL'
+
+                                    THEN value_usd
+
+                                    ELSE CAST(
+                                        0
+                                        AS DECIMAL(38,8)
+                                    )
+                                END
+                            )
+
+                        ELSE
+                            NULL
+                    END AS internal_transfer_usd,
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                valuation_status = 'VALUED'
+                            THEN 1
+                        END
+                    ) AS valued_event_count,
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                valuation_status
+                                    = 'PRICE_UNAVAILABLE'
+                            THEN 1
+                        END
+                    ) AS price_unavailable_event_count,
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                valuation_status
+                                    = 'ASSET_NOT_PRICED'
+                            THEN 1
+                        END
+                    ) AS asset_not_priced_event_count,
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                valuation_status
+                                    = 'AMOUNT_UNAVAILABLE'
+                            THEN 1
+                        END
+                    ) AS amount_unavailable_event_count,
+
+                    COUNT(
+                        CASE
+                            WHEN
+                                valuation_status
+                                    = 'PRICE_DATA_INVALID'
+                            THEN 1
+                        END
+                    ) AS price_data_invalid_event_count
+
+                FROM
+                    classified
+
+                GROUP BY
+                    1,
+                    2,
+                    3
+            )
+
+            SELECT COUNT(*)
+
+            FROM
+                expected AS e
+
+            FULL OUTER JOIN
+                gold.organization_daily_erc20_flows
+                AS g
+
+                ON
+                    e.flow_date
+                        = g.flow_date
+
+                    AND
+
+                    e.organization_id
+                        = g.organization_id
+
+                    AND
+
+                    e.token_contract
+                        = g.token_contract
+
+            WHERE
+                e.flow_date IS NULL
+
+                OR g.flow_date IS NULL
+
+                OR e.external_inflow_usd
+                    IS DISTINCT FROM
+                    g.external_inflow_usd
+
+                OR e.external_outflow_usd
+                    IS DISTINCT FROM
+                    g.external_outflow_usd
+
+                OR e.net_external_flow_usd
+                    IS DISTINCT FROM
+                    g.net_external_flow_usd
+
+                OR e.internal_transfer_usd
+                    IS DISTINCT FROM
+                    g.internal_transfer_usd
+
+                OR e.valued_event_count
+                    IS DISTINCT FROM
+                    g.valued_event_count
+
+                OR e.price_unavailable_event_count
+                    IS DISTINCT FROM
+                    g.price_unavailable_event_count
+
+                OR e.asset_not_priced_event_count
+                    IS DISTINCT FROM
+                    g.asset_not_priced_event_count
+
+                OR e.amount_unavailable_event_count
+                    IS DISTINCT FROM
+                    g.amount_unavailable_event_count
+
+                OR e.price_data_invalid_event_count
+                    IS DISTINCT FROM
+                    g.price_data_invalid_event_count
+            """
+        ).fetchone()[0]
+    )
+
+    print(
+        "Organization USD aggregate mismatches:",
+        mismatch_count,
+    )
+
+    if mismatch_count != 0:
+        fail(
+            "Organization ERC20 USD aggregates "
+            "do not reconcile with deduplicated "
+            "transfer valuations"
         )
 
 
@@ -383,6 +1708,7 @@ def check_wallet_measures(
                     ) AS flow_date,
 
                     wallet_id,
+
                     token_contract,
 
                     SUM(
@@ -811,6 +2137,7 @@ def check_organization_measures(
             WITH blockchain_events AS (
                 SELECT DISTINCT
                     blockchain_event_id,
+
                     organization_id,
 
                     CAST(
@@ -819,8 +2146,11 @@ def check_organization_measures(
                     ) AS flow_date,
 
                     token_contract,
+
                     from_address,
+
                     to_address,
+
                     amount_decimal
 
                 FROM
@@ -841,8 +2171,8 @@ def check_organization_measures(
                             to_wallet.wallet_id
                                 IS NOT NULL
 
-                        THEN 'INTERNAL'
-
+                        THEN
+                            'INTERNAL'
 
                         WHEN
                             from_wallet.wallet_id
@@ -853,8 +2183,8 @@ def check_organization_measures(
                             to_wallet.wallet_id
                                 IS NULL
 
-                        THEN 'OUT'
-
+                        THEN
+                            'OUT'
 
                         WHEN
                             from_wallet.wallet_id
@@ -865,12 +2195,13 @@ def check_organization_measures(
                             to_wallet.wallet_id
                                 IS NOT NULL
 
-                        THEN 'IN'
+                        THEN
+                            'IN'
 
-
-                        ELSE 'OTHER'
+                        ELSE
+                            'OTHER'
                     END
-                    AS organization_direction
+                        AS organization_direction
 
                 FROM
                     blockchain_events
@@ -916,7 +2247,9 @@ def check_organization_measures(
             expected AS (
                 SELECT
                     flow_date,
+
                     organization_id,
+
                     token_contract,
 
                     SUM(
@@ -990,7 +2323,6 @@ def check_organization_measures(
                             WHEN
                                 organization_direction
                                     = 'IN'
-
                             THEN 1
                         END
                     ) AS external_inflow_event_count,
@@ -1000,7 +2332,6 @@ def check_organization_measures(
                             WHEN
                                 organization_direction
                                     = 'OUT'
-
                             THEN 1
                         END
                     ) AS external_outflow_event_count,
@@ -1010,7 +2341,6 @@ def check_organization_measures(
                             WHEN
                                 organization_direction
                                     = 'INTERNAL'
-
                             THEN 1
                         END
                     ) AS internal_transfer_event_count,
@@ -1020,7 +2350,6 @@ def check_organization_measures(
                             WHEN
                                 organization_direction
                                     = 'OTHER'
-
                             THEN 1
                         END
                     ) AS other_event_count,
@@ -1281,12 +2610,13 @@ def check_transaction_activity_measures(
                     ) AS activity_date,
 
                     organization_id,
+
                     wallet_id,
+
                     treasury_address,
 
                     COUNT(*)
                         AS transaction_count,
-
 
                     COUNT(
                         CASE
@@ -1302,7 +2632,6 @@ def check_transaction_activity_measures(
                     )
                         AS failed_transaction_count,
 
-
                     COUNT(
                         CASE
                             WHEN
@@ -1317,15 +2646,12 @@ def check_transaction_activity_measures(
                     )
                         AS successful_transaction_count,
 
-
                     COUNT(
                         CASE
                             WHEN
                                 NOT (
                                     is_error IS TRUE
-
                                     OR
-
                                     receipt_status = 0
                                 )
 
@@ -1333,9 +2659,7 @@ def check_transaction_activity_measures(
 
                                 NOT (
                                     receipt_status = 1
-
                                     AND
-
                                     is_error IS NOT TRUE
                                 )
 
@@ -1343,7 +2667,6 @@ def check_transaction_activity_measures(
                         END
                     )
                         AS unknown_status_count,
-
 
                     COUNT(
                         CASE
@@ -1353,13 +2676,11 @@ def check_transaction_activity_measures(
                     )
                         AS contract_creation_count,
 
-
                     COALESCE(
                         SUM(gas_used),
                         0
                     )
                         AS total_gas_used,
-
 
                     SUM(
                         COALESCE(
@@ -1373,7 +2694,6 @@ def check_transaction_activity_measures(
                     )
                         AS outer_transaction_fee_eth,
 
-
                     COUNT(
                         CASE
                             WHEN
@@ -1385,10 +2705,8 @@ def check_transaction_activity_measures(
                     )
                         AS missing_fee_count
 
-
                 FROM
                     silver.transactions
-
 
                 GROUP BY
                     1,
@@ -1397,12 +2715,9 @@ def check_transaction_activity_measures(
                     4
             )
 
-
             SELECT COUNT(*)
 
-
             FROM expected AS e
-
 
             FULL OUTER JOIN
                 gold.wallet_daily_transaction_activity
@@ -1417,57 +2732,46 @@ def check_transaction_activity_measures(
                     e.wallet_id
                         = g.wallet_id
 
-
             WHERE
                 e.activity_date IS NULL
 
                 OR g.activity_date IS NULL
 
-
                 OR e.organization_id
                     IS DISTINCT FROM
                     g.organization_id
-
 
                 OR e.treasury_address
                     IS DISTINCT FROM
                     g.treasury_address
 
-
                 OR e.transaction_count
                     IS DISTINCT FROM
                     g.transaction_count
-
 
                 OR e.failed_transaction_count
                     IS DISTINCT FROM
                     g.failed_transaction_count
 
-
                 OR e.successful_transaction_count
                     IS DISTINCT FROM
                     g.successful_transaction_count
-
 
                 OR e.unknown_status_count
                     IS DISTINCT FROM
                     g.unknown_status_count
 
-
                 OR e.contract_creation_count
                     IS DISTINCT FROM
                     g.contract_creation_count
-
 
                 OR e.total_gas_used
                     IS DISTINCT FROM
                     g.total_gas_used
 
-
                 OR e.outer_transaction_fee_eth
                     IS DISTINCT FROM
                     g.outer_transaction_fee_eth
-
 
                 OR e.missing_fee_count
                     IS DISTINCT FROM
@@ -1615,6 +2919,10 @@ def main():
             connection
         )
 
+        check_erc20_transfer_valuations(
+            connection
+        )
+
         check_decimal_coverage(
             connection
         )
@@ -1627,6 +2935,10 @@ def main():
             connection
         )
 
+        check_wallet_usd_measures(
+            connection
+        )
+
         check_organization_event_counts(
             connection
         )
@@ -1636,6 +2948,10 @@ def main():
         )
 
         check_organization_measures(
+            connection
+        )
+
+        check_organization_usd_measures(
             connection
         )
 
