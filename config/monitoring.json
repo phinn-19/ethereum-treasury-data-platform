@@ -6,5 +6,12 @@
     "asset_type": "erc20",
     "quote_currency": "usd",
     "threshold_usd": "1000000"
+  },
+  "native_eth_large_transfer_monitoring": {
+    "enabled": true,
+    "scope": "organization",
+    "asset_type": "native_eth",
+    "quote_currency": "usd",
+    "threshold_usd": "1000000"
   }
 }
