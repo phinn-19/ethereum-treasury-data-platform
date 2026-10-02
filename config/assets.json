@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "chain_id": 1,
+  "chain_name": "ethereum",
+  "quote_currency": "usd",
+  "default_pricing_policy": "unpriced",
+  "assets": [
+    {
+      "asset_id": "ens",
+      "contract_address": "0xc18360217d8f7ab5e7c516566761ea12ce7f9d72",
+      "symbol": "ENS",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "usdc",
+      "contract_address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "symbol": "USDC",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "weth",
+      "contract_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "symbol": "WETH",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "aura",
+      "contract_address": "0xc0c293ce456ff0ed870add98a0828dd4d2903dbf",
+      "symbol": "AURA",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "bal",
+      "contract_address": "0xba100000625a3754423978a60c9317c58a424e3d",
+      "symbol": "BAL",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "dai",
+      "contract_address": "0x6b175474e89094c44da98b954eedeac495271d0f",
+      "symbol": "DAI",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "comp",
+      "contract_address": "0xc00e94cb662c3520282e6f5717214004a7f26888",
+      "symbol": "COMP",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "usds",
+      "contract_address": "0xdc035d45d973e3ec169d2276ddab16f1e407384f",
+      "symbol": "USDS",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "rpl",
+      "contract_address": "0xd33526068d116ce69f19a9ee46f0bd304f21a51f",
+      "symbol": "RPL",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "reth",
+      "contract_address": "0xae78736cd615f374d3085123a210448e74fc6393",
+      "symbol": "rETH",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "swise",
+      "contract_address": "0x48c3399719b582dd63eb5aadf12a40b4c3f52fa2",
+      "symbol": "SWISE",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "steth",
+      "contract_address": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84",
+      "symbol": "stETH",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "safe",
+      "contract_address": "0x5afe3855358e112b5647b952709e6165e1c1eeee",
+      "symbol": "SAFE",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "usdt",
+      "contract_address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+      "symbol": "USDT",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "gho",
+      "contract_address": "0x40d16fc0246ad3160ccc09b8d0d3a2cd28ae6c2f",
+      "symbol": "GHO",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    },
+    {
+      "asset_id": "wsteth",
+      "contract_address": "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0",
+      "symbol": "wstETH",
+      "price_enabled": true,
+      "price_source": "defillama",
+      "pricing_method": "historical_contract_price"
+    }
+  ]
+}
