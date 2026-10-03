@@ -21,6 +21,42 @@ def create_gold_schema(
     )
 
 
+def build_wallet_metadata(
+    connection,
+):
+    connection.execute(
+        """
+        DROP TABLE IF EXISTS
+        gold.wallets
+        """
+    )
+
+    connection.execute(
+        """
+        CREATE TABLE
+        gold.wallets
+        AS
+
+        SELECT
+            organization_id,
+            organization_name,
+            wallet_id,
+            wallet_name,
+            wallet_role,
+            LOWER(address) AS address,
+            monitoring_enabled
+
+        FROM
+            silver.wallets
+
+        ORDER BY
+            organization_id,
+            wallet_name,
+            wallet_id
+        """
+    )
+
+
 def build_wallet_erc20_transfer_valuations(
     connection,
 ):
@@ -1149,6 +1185,7 @@ def print_summary(
     print("=" * 100)
 
     for table_name in [
+        "wallets",
         "wallet_erc20_transfer_valuations",
         "wallet_daily_erc20_flows",
         "organization_daily_erc20_flows",
@@ -1288,6 +1325,10 @@ def main():
         )
 
         create_gold_schema(
+            connection
+        )
+
+        build_wallet_metadata(
             connection
         )
 

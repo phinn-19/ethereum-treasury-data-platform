@@ -31,6 +31,7 @@ def check_tables(
     )
 
     required_tables = {
+        "wallets",
         "wallet_erc20_transfer_valuations",
         "wallet_daily_erc20_flows",
         "organization_daily_erc20_flows",
@@ -185,6 +186,64 @@ def check_grain(
         ).fetchone()[0]
     )
 
+    wallet_metadata_id_duplicates = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM (
+                SELECT
+                    organization_id,
+                    wallet_id
+
+                FROM
+                    gold.wallets
+
+                GROUP BY
+                    organization_id,
+                    wallet_id
+
+                HAVING COUNT(*) > 1
+            )
+            """
+        ).fetchone()[0]
+    )
+
+    wallet_metadata_address_duplicates = (
+        connection.execute(
+            """
+            SELECT COUNT(*)
+
+            FROM (
+                SELECT
+                    organization_id,
+                    address
+
+                FROM
+                    gold.wallets
+
+                GROUP BY
+                    organization_id,
+                    address
+
+                HAVING COUNT(*) > 1
+            )
+            """
+        ).fetchone()[0]
+    )
+
+    print(
+        "Gold wallet duplicate "
+        "(organization, wallet_id) groups:",
+        wallet_metadata_id_duplicates,
+    )
+
+    print(
+        "Gold wallet duplicate "
+        "(organization, address) groups:",
+        wallet_metadata_address_duplicates,
+    )
+
     print(
         "Transfer valuation duplicate "
         "activity_id groups:",
@@ -209,6 +268,18 @@ def check_grain(
         transaction_duplicates,
     )
 
+    if wallet_metadata_id_duplicates != 0:
+        fail(
+            "Gold wallet metadata contains "
+            "duplicate wallet IDs"
+        )
+
+    if wallet_metadata_address_duplicates != 0:
+        fail(
+            "Gold wallet metadata contains "
+            "duplicate addresses"
+        )
+
     if valuation_duplicates != 0:
         fail(
             "ERC20 transfer valuation grain "
@@ -231,6 +302,174 @@ def check_grain(
         fail(
             "Transaction activity Gold grain "
             "contains duplicates"
+        )
+
+
+def check_wallet_metadata(
+    connection,
+):
+    section(
+        "GOLD WALLET METADATA CHECK"
+    )
+
+    silver_rows = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM silver.wallets
+        """
+    ).fetchone()[0]
+
+    gold_rows = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM gold.wallets
+        """
+    ).fetchone()[0]
+
+    silver_monitored = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM silver.wallets
+        WHERE monitoring_enabled = TRUE
+        """
+    ).fetchone()[0]
+
+    gold_monitored = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM gold.wallets
+        WHERE monitoring_enabled = TRUE
+        """
+    ).fetchone()[0]
+
+    missing_required_fields = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM gold.wallets
+        WHERE organization_id IS NULL
+           OR organization_name IS NULL
+           OR wallet_id IS NULL
+           OR wallet_name IS NULL
+           OR address IS NULL
+           OR monitoring_enabled IS NULL
+        """
+    ).fetchone()[0]
+
+    source_missing_in_gold = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM (
+            SELECT
+                organization_id,
+                organization_name,
+                wallet_id,
+                wallet_name,
+                wallet_role,
+                LOWER(address) AS address,
+                monitoring_enabled
+            FROM silver.wallets
+
+            EXCEPT
+
+            SELECT
+                organization_id,
+                organization_name,
+                wallet_id,
+                wallet_name,
+                wallet_role,
+                address,
+                monitoring_enabled
+            FROM gold.wallets
+        )
+        """
+    ).fetchone()[0]
+
+    unexpected_gold_rows = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM (
+            SELECT
+                organization_id,
+                organization_name,
+                wallet_id,
+                wallet_name,
+                wallet_role,
+                address,
+                monitoring_enabled
+            FROM gold.wallets
+
+            EXCEPT
+
+            SELECT
+                organization_id,
+                organization_name,
+                wallet_id,
+                wallet_name,
+                wallet_role,
+                LOWER(address) AS address,
+                monitoring_enabled
+            FROM silver.wallets
+        )
+        """
+    ).fetchone()[0]
+
+    print(
+        "Silver wallet rows:",
+        silver_rows,
+    )
+    print(
+        "Gold wallet rows:",
+        gold_rows,
+    )
+    print(
+        "Silver monitoring-enabled wallets:",
+        silver_monitored,
+    )
+    print(
+        "Gold monitoring-enabled wallets:",
+        gold_monitored,
+    )
+    print(
+        "Gold rows missing required fields:",
+        missing_required_fields,
+    )
+    print(
+        "Silver rows missing in Gold:",
+        source_missing_in_gold,
+    )
+    print(
+        "Unexpected Gold wallet rows:",
+        unexpected_gold_rows,
+    )
+
+    if silver_rows != gold_rows:
+        fail(
+            "Gold wallet row count does not "
+            "match silver.wallets"
+        )
+
+    if silver_monitored != gold_monitored:
+        fail(
+            "Monitoring-enabled wallet count "
+            "does not match Silver"
+        )
+
+    if missing_required_fields != 0:
+        fail(
+            "Gold wallet metadata contains "
+            "missing required fields"
+        )
+
+    if source_missing_in_gold != 0:
+        fail(
+            "Some Silver wallet metadata rows "
+            "are missing in Gold"
+        )
+
+    if unexpected_gold_rows != 0:
+        fail(
+            "Gold wallet metadata contains "
+            "unexpected rows"
         )
 
 
@@ -2916,6 +3155,10 @@ def main():
         )
 
         check_grain(
+            connection
+        )
+
+        check_wallet_metadata(
             connection
         )
 
