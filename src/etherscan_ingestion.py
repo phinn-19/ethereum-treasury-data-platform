@@ -244,11 +244,16 @@ def ingest_account_history(
             )
         )
 
+        # ghi vào file tạm >> ghi vào file chính
+        # tránh nếu bị ngắt xh một file dở
+        temp_file = output_file.with_suffix(".json.tmp")
 
-        output_file.write_text(
+        temp_file.write_text(
             response.text,
             encoding="utf-8",
         )
+
+        temp_file.replace(output_file)
 
 
         pages_saved += 1
