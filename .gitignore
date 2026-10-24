@@ -5,3 +5,6 @@ __pycache__/
 data/raw/
 data/state/
 data/silver/
+data/serving/
+logs/
+airflow-local/
