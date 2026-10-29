@@ -1,0 +1,37 @@
+# đặt tên cho quá trình kiểm thử
+name: Treasury Python Tests
+# khi mở hoặc cập nhật pr vào main, github chạy test
+on:
+  pull_request:
+    branches:
+      - main
+  # khi code được push lên main, chạy test
+  push:
+    branches:
+      - main
+# chỉ cấp quyền đọc repo cho workflows
+permissions:
+  contents: read
+#các cv github cần thực hiện
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download repository code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install pytest==9.0.2
+
+      - name: Run treasury tests
+        run: python -m pytest tests/ -v
